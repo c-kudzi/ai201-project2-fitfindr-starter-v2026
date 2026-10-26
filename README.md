@@ -318,24 +318,110 @@ that produced it:
      the same length, your branch isn't working — and this is the fastest way
      anyone will ever find that out. -->
 
-**Happy path**
+**Happy path:** 4 steps, with the MCP call at step 2. This was run with the build cache on, which is why it reports 0 model calls.
 
 ```
+$ python app.py ask 'vintage graphic tee under $30, size M' --trace
+[1] parse_query
+      in:  vintage graphic tee under $30, size M
+      out: {'description': 'vintage graphic tee', 'size': 'M', 'max_price': 30.0}
+[2] search_listings (via MCP)
+      in:  {'description': 'vintage graphic tee', 'size': 'M', 'max_price': 30.0}
+      out: 10 items: Y2K Baby Tee — Butterfly Print, Leather Belt — Brown, Braided, Bucket Hat — Reversible, Brown Plaid … +7 more
+      →    branch: 10 found, selected lst_002
+[3] suggest_outfit
+      in:  {'new_item': 'lst_002', 'wardrobe_items': 10}
+      out: Outfit 1: Y2K Baby Tee — Butterfly Print Baggy straight-leg jeans, dark wash Chunky white sneakers Black cross…
+[4] create_fit_card
+      in:  {'new_item': 'lst_002', 'outfit': 'Outfit 1:\nY2K Baby Tee — Butterfly Print\nBaggy straight-leg jeans, dark w…
+      out: Found this little butterfly tee and I'm obsessed with the pastel print. It was only $18.00 on depop and the fi…
 
+  Found:    Y2K Baby Tee — Butterfly Print — $18.0 on depop
+
+  Outfit:   Outfit 1:
+Y2K Baby Tee — Butterfly Print
+Baggy straight-leg jeans, dark wash
+Chunky white sneakers
+Black crossbody bag
+
+Outfit 2:
+Y2K Baby Tee — Butterfly Print
+Wide-leg khaki trousers
+Brown leather belt
+Black combat boots
+
+  Fit card: Found this little butterfly tee and I'm obsessed with the pastel print. It was only $18.00 on depop and the fit is so snatched. Perfect for throwing on with baggy jeans or slouchy trousers. #y2kstyle #babytee #thriftedfashion
+
+0 model calls this session, 2 served from cache
 ```
 
-**Empty search**
+**Empty search:** 2 steps. It stops at the branch, and nothing after search runs.
 
 ```
+$ python app.py ask 'designer ballgown size XXS under $5' --trace
+[1] parse_query
+      in:  designer ballgown size XXS under $5
+      out: {'description': 'designer ballgown', 'size': 'XXS', 'max_price': 5.0}
+[2] search_listings (via MCP)
+      in:  {'description': 'designer ballgown', 'size': 'XXS', 'max_price': 5.0}
+      out: [] (empty)
+      →    branch: empty, stopping before suggest_outfit
 
+  No listings matched 'designer ballgown' in size XXS under $5. None of the 40 listings mention those words at all, so changing the price or size won't help. Try a different item type (tops, bottoms, outerwear, shoes, accessories) or a style word like 'vintage', '90s', 'y2k' or 'denim'.
+
+0 model calls this session
 ```
 
-**On the MCP move:** <!-- what changed in your code, and whether anything
-behaved differently afterwards. If the rewire didn't work, say exactly where it
-broke — the error text and the last thing that worked. That earns the point in
-full. -->
+### The three failure modes, triggered on purpose
 
+I triggered each one before writing any handler and recorded what the agent did.
 
+**1. Empty search** (`'designer ballgown size XXS under $5'`). This was already handled in unit 3, and the message is shown above. It stops at step 2, makes 0 model calls, and `fit_card` stays None. No change needed.
+
+**2. Empty wardrobe** (`python app.py ask 'denim jacket under $50' --empty-wardrobe`, cache off). This was already handled in unit 3: `suggest_outfit` switches to a general-advice prompt. No crash and no empty string:
+
+```
+(running with an empty wardrobe)
+
+  Found:    Denim Jacket — Light Wash, Cropped — $42.0 on poshmark
+
+  Outfit:   Pair the cropped jacket with a simple white ribbed tank and high-waisted black wide-leg trousers.
+Throw on a pair of classic canvas sneakers and a canvas tote bag to finish the look.
+Alternatively, layer it over a black slip dress with chunky black boots for a high-low mix.
+
+  Fit card: Finally found the perfect cropped vintage denim jacket to throw over literally everything. Snagged this Wrangler piece for $42.00 on poshmark and the structured shoulders are unreal. It is such a good blank canvas for layering through every season. #thrifted #denimstyle #poshfinds
+```
+
+Note that it suggests "a simple white ribbed tank", which is one of my example wardrobe's item names word for word, "White ribbed tank top", minus "top". Criterion 5 checks for exactly this kind of overlap.
+
+**3. Model unavailable** (one character of the key changed, on a query I hadn't asked before, `'corduroy pants under $40'`). **Before the handler**, `run_agent` raised `ModelUnavailable` and the only thing that caught it was the catch-all at the bottom of `app.py`:
+
+```
+ModelUnavailable: The model rejected your API key. Check GEMINI_API_KEY in your .env file, or create a fresh key at aistudio.google.com.
+```
+
+That isn't a stack trace, but it threw the whole session away. The user never learned that the search had worked and found something, and `run_eval.py` would have logged the run as CRASHED. **I added a handler in `agent.py::run_agent`** that catches `ModelUnavailable` around both model calls, keeps the session, and stops with what it has:
+
+```
+[1] parse_query
+      in:  corduroy pants under $40
+      out: {'description': 'corduroy pants', 'size': None, 'max_price': 40.0}
+[2] search_listings (via MCP)
+      in:  {'description': 'corduroy pants', 'size': None, 'max_price': 40.0}
+      out: 2 items: Corduroy Wide-Leg Pants — Rust, Low-Rise Cargo Pants — Khaki
+      →    branch: 2 found, selected lst_005
+[3] suggest_outfit
+      out: ModelUnavailable
+      →    model unreachable, stopping
+
+  Found Corduroy Wide-Leg Pants — Rust ($32 on depop), but couldn't reach the model to suggest an outfit. The model rejected your API key. Check GEMINI_API_KEY in your .env file, or create a fresh key at aistudio.google.com.
+```
+
+I changed the key for that one command only, through the `GEMINI_API_KEY` environment variable, which `load_dotenv` doesn't override. `.env` itself was never edited, so there was nothing to put back.
+
+**A fourth one the MCP move created: the MCP server failing.** Moving search onto MCP added a way to fail that didn't exist before. I forced it by pointing `mcp_client.SERVER` at a file that doesn't exist. The handler catches `MCPError` and stops at step 2 with: *"The listing search couldn't run, because the MCP search server failed, so nothing was searched. Run `python mcp_client.py` to check the server starts, then ask again."*
+
+**On the MCP move:** `search_listings` is now registered in `mcp_server.py`, with a description written for an agent that can't see my code: what each input means, the size-matching rule, prices in US dollars, and that an empty list `[]` is the "nothing found" answer, not an error. In `agent.py`, a small `search_listings` wrapper calls `mcp_client.call_tool("search_listings", ...)`. Every search the agent makes goes through it, including the re-searches `explain_empty` does to build its message. The tool's code in `tools.py` is unchanged. Nothing behaved differently: `call_tool(...) == search_listings(...)` came back `True` for a matching query, the empty query returned `[]` through MCP too, and both example runs printed the same output as in unit 3. Each MCP call starts a server process, which cost about 0.34 s per call on my machine.
 
 ---
 
