@@ -41,6 +41,8 @@
 
 <!-- Three or four sentences: what a user asks for, and what they get back. -->
 
+You type what you're thrifting for in plain words, such as `'vintage graphic tee under $30, size M'`. FitFindr pulls the price ceiling and size out of the query and searches 40 secondhand listings from Depop, thredUp and Poshmark for the best keyword match. If it finds one, it asks the model for one or two outfits that pair the item with pieces from your saved wardrobe, then writes a short caption you could post with it. If nothing matches, it stops before the model calls and tells you which filter blocked the search and what to change.
+
 
 
 ---
@@ -108,7 +110,9 @@ and one-size items (`One Size`, `One Size (adjustable)`). A wardrobe is
 
 **Where it lives:** `agent.py::run_agent`
 
-**How the query is parsed:** Regex, in `agent.py::parse_query`. The price comes from `under $30`, `below 30`, `less than $30`, `max $30`, `up to $30` or a bare `$30`. The size comes from `size M` or `size 8.5`. What's left, minus filler words like "looking for", "a" and "in", becomes the description.
+**How the query is parsed:** Regex, in `agent.py::parse_query`. The price comes from `under $30`, `below 30`, `less than $30`, `max $30`, `up to $30` or a bare `$30`. The size comes from `size M` or `size 8.5`. Both are cut out of the query and what's left becomes the description. Filler words like "looking", "for", "a" and "in" stay in the description and are dropped by `search_listings` before scoring.
+
+**Empty-search message:** `agent.py::explain_empty` re-runs the search with one filter removed at a time to find the blocker. If no listing contains the words at all, it says so and suggests item types and style words that exist. If the price was the blocker, it gives the cheapest price that would match. If the size was, it lists the sizes that would match.
 
 **What moves through the session:** `query` → `parsed` (description, size, max_price) → `search_results` → *branch* → `selected_item` → `outfit_suggestion` → `fit_card`. Each tool reads its inputs out of the session, not from the previous call's return value.
 
@@ -121,28 +125,73 @@ and one-size items (`One Size`, `One Size (adjustable)`). A wardrobe is
      1. One FULL query and its output, pasted as text.
      2. Your three per-tool terminal tests — the command and what it printed. -->
 
-**One full query**
+**One full query** (example wardrobe)
 
 ```
-$ python app.py ask '...'
+$ python app.py ask 'vintage graphic tee under $30, size M'
 
+  Found:    Y2K Baby Tee — Butterfly Print — $18.0 on depop
+
+  Outfit:   Outfit 1:
+Y2K Baby Tee — Butterfly Print
+Baggy straight-leg jeans, dark wash
+Chunky white sneakers
+Black crossbody bag
+
+Outfit 2:
+Y2K Baby Tee — Butterfly Print
+Wide-leg khaki trousers
+Brown leather belt
+Black combat boots
+
+  Fit card: Found this little butterfly tee and I'm obsessed with the pastel print. It was only $18.00 on depop and the fit is so snatched. Perfect for throwing on with baggy jeans or slouchy trousers. #y2kstyle #babytee #thriftedfashion
+
+0 model calls this session, 2 served from cache
+```
+
+**The empty-search branch**
+
+```
+$ python app.py ask 'designer ballgown size XXS under $5'
+
+  No listings matched 'designer ballgown' in size XXS under $5. None of the 40 listings mention those words at all, so changing the price or size won't help. Try a different item type (tops, bottoms, outerwear, shoes, accessories) or a style word like 'vintage', '90s', 'y2k' or 'denim'.
+
+0 model calls this session
 ```
 
 **The three tools, tested one at a time**
 
-```
-$ python -c "from tools import search_listings; print(search_listings('graphic tee', max_price=30))"
+`search_listings`, a matching search and the empty case:
 
 ```
+$ python -c "from tools import search_listings; print([(l['id'], l['title'], l['size'], l['price']) for l in search_listings('graphic tee', size='M', max_price=30)]); print(search_listings('designer ballgown', size='XXS', max_price=5))"
+[('lst_002', 'Y2K Baby Tee — Butterfly Print', 'S/M', 18.0), ('lst_017', 'Mesh Long-Sleeve Top — Black', 'S/M', 15.0)]
+[]
+```
+
+`suggest_outfit` with the example wardrobe:
 
 ```
-$ python -c "from tools import suggest_outfit; ..."
+$ python -c "from tools import suggest_outfit; from utils.data_loader import get_example_wardrobe, load_listings; print(suggest_outfit(load_listings()[0], get_example_wardrobe()))"
+Outfit 1:
+Vintage Levi's 501 Jeans — Medium Wash
+White ribbed tank top
+Chunky white sneakers
+Black crossbody bag
 
+Outfit 2:
+Vintage Levi's 501 Jeans — Medium Wash
+Oversized grey crewneck sweatshirt
+Brown leather belt
+Black combat boots
 ```
 
-```
-$ python -c "from tools import create_fit_card; ..."
+`create_fit_card` with an outfit, then with an empty outfit:
 
+```
+$ python -c "from tools import create_fit_card; from utils.data_loader import load_listings; print(create_fit_card('jeans and white sneakers', load_listings()[0])); print(create_fit_card('', load_listings()[0]))"
+Found these vintage Levi's 501s and the fade at the knees is just so good. Tossed them on with some fresh white sneakers for that effortless everyday look. Scoring these for $38.00 on depop totally made my week. #levis #vintage #denim
+No fit card: there was no outfit suggestion for Vintage Levi's 501 Jeans — Medium Wash to write about.
 ```
 
 ---
