@@ -37,6 +37,8 @@
 
 <!-- ═══════════════════════ UNIT 3 — THE BUILD ═══════════════════════ -->
 
+Kudzaishe Chikowore — FitFindr
+
 ## What This Does
 
 <!-- Three or four sentences: what a user asks for, and what they get back. -->
@@ -76,6 +78,10 @@ and one-size items (`One Size`, `One Size (adjustable)`). A wardrobe is
 - **Returns:** A `list[dict]` of at most `config.SEARCH_RESULT_LIMIT` (10) whole listing dicts, highest score first, with ties going to the lower price. Each dict has the same fields as the data: `id`, `title`, `description`, `category`, `style_tags`, `size`, `condition`, `price`, `colors`, `brand`, `platform`. Scoring: a keyword found in the title, a style tag or the category counts 2; one found only in the description, colors or brand counts 1. A listing that scores 0 is dropped.
   - **Size matching rule:** the listing's size and the requested size are both split into lowercase tokens on spaces, `/`, `(` and `)`, and a listing matches if it shares a whole token with the request. So `M` matches `S/M`, `M` and `M/L`, but not `XL`, `W30 L30` or `US 9`. `8` matches `US 8` but not `US 8.5`. A listing whose size contains "one size" matches any requested size.
 - **When it has nothing:** It returns an empty list `[]`, never None and never an exception. An empty or stopword-only `description` also returns `[]`.
+
+**Why whole tokens and not a substring test.** I counted. A plain substring test for `S` matches 16 listings, and 6 of those are wrong: every shoe (`US 7`, `US 8`, `US 8.5`, `US 9`) and both `XL (oversized)` tops. For `L` it matches 13, and 4 are wrong: `W30 L30` jeans and three XLs. Whole-token matching drops all 10 of those. It returns *more* for `M` (18 instead of 14) only because one-size items now count, and I decided that on purpose: a one-size bag fits anyone who asked for a size M.
+
+**What this search is bad at, and I'm not going to pretend otherwise.** It's a keyword match with no idea what words mean. "vintage" appears in 29 of the 40 listings, so a query that leans on it barely narrows anything. `'vintage graphic tee under $30'` returns 10 results, and a belt and a bucket hat are in them because they match "vintage". When scores tie, the cheaper listing wins, which is why the $18 Y2K baby tee beats the $19 band tee for that query. "tee" won't match "t-shirt", and "sneakers" only matches "sneaker" because of a crude plural strip.
 
 ### `suggest_outfit`
 
@@ -205,17 +211,33 @@ No fit card: there was no outfit suggestion for Vintage Levi's 501 Jeans — Med
      "I gave Claude my search_listings spec. It returned None on no match
      instead of an empty list, so I changed it" is the level we want. -->
 
-**Moment 1: testing `create_fit_card`**
+**1. I asked Claude to test the fit card, and the first result was a false pass.**
+I had it run `create_fit_card` three times on the same item (the 2003 tour
+graphic tee) with the same outfit, to check that the captions vary. Three
+captions came back identical word for word. That isn't the tool. It's the
+starter's cache (`CACHE_ENABLED` in `config.py`) handing back the first
+answer.
 
-- *What I asked for:* I had Claude run `create_fit_card` three times on the same item (the 2003 tour graphic tee) and the same outfit, to check that the captions vary.
-- *What came back:* Three captions that were identical word for word. The cause was the cache (`CACHE_ENABLED` in `config.py`) handing back the first answer, not the tool.
-- *What I changed:* We re-ran it with `AI201_CACHE=0`. The three captions were different, but two of them opened with the same sentence ("Found my new favorite concert tee even though I definitely wasn't at this show in 2003."). So "different" alone isn't a strong enough bar, and I took that into account when writing my fit-card criterion.
+Re-run with `AI201_CACHE=0`, the three captions were different, but two of
+them opened with the same sentence: "Found my new favorite concert tee even
+though I definitely wasn't at this show in 2003." So "the captions are
+different" is too weak a bar, because two cards can differ and still read the
+same. I took that into account when writing my fit-card criterion. The lesson
+I'm taking from project 1 still holds: a result from an AI isn't a
+measurement until I know what produced it.
 
-**Moment 2: reviewing the README against the code**
+**2. I asked it to review my README against the code, and the README was the
+part that was wrong.** The grader checks the code against what the README
+claims, so I had Claude check the Planning Loop section line by line against
+`agent.py`. The README said `parse_query` strips filler words like "looking
+for" and "in". It doesn't: `parse_query("90s track jacket in size M")` returns
+the description `"90s track jacket in"`. The words are dropped later, by the
+`STOPWORDS` set in `tools.py::search_listings`.
 
-- *What I asked for:* A review of my Planning Loop write-up against what `agent.py` actually does, because the grader checks the code against the README.
-- *What came back:* The README said `parse_query` strips filler words like "looking for" and "in" out of the description. It doesn't: `parse_query("90s track jacket in size M")` returns the description `"90s track jacket in"`, and the words are dropped later by the `STOPWORDS` set in `tools.py::search_listings`.
-- *What I changed:* I corrected the README to say where the filler words are really dropped, instead of changing the code to match a sentence that was wrong.
+What I changed: the README, not the code. The behavior was fine. The sentence
+describing it was wrong, and changing working code to match a wrong sentence
+would have been backwards. The same review caught a number I'd been told
+earlier, that "vintage" appears in 36 of the 40 listings. Recounted, it's 29.
 
 <!-- ═══════════════════════ UNIT 4 — THE TEST ═══════════════════════
 
