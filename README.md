@@ -205,17 +205,17 @@ No fit card: there was no outfit suggestion for Vintage Levi's 501 Jeans — Med
      "I gave Claude my search_listings spec. It returned None on no match
      instead of an empty list, so I changed it" is the level we want. -->
 
-**Moment 1**
+**Moment 1: testing `create_fit_card`**
 
-- *What I asked for:*
-- *What came back:*
-- *What I changed:*
+- *What I asked for:* I had Claude run `create_fit_card` three times on the same item (the 2003 tour graphic tee) and the same outfit, to check that the captions vary.
+- *What came back:* Three captions that were identical word for word. The cause was the cache (`CACHE_ENABLED` in `config.py`) handing back the first answer, not the tool.
+- *What I changed:* We re-ran it with `AI201_CACHE=0`. The three captions were different, but two of them opened with the same sentence ("Found my new favorite concert tee even though I definitely wasn't at this show in 2003."). So "different" alone isn't a strong enough bar, and I took that into account when writing my fit-card criterion.
 
-**Moment 2**
+**Moment 2: reviewing the README against the code**
 
-- *What I asked for:*
-- *What came back:*
-- *What I changed:*
+- *What I asked for:* A review of my Planning Loop write-up against what `agent.py` actually does, because the grader checks the code against the README.
+- *What came back:* The README said `parse_query` strips filler words like "looking for" and "in" out of the description. It doesn't: `parse_query("90s track jacket in size M")` returns the description `"90s track jacket in"`, and the words are dropped later by the `STOPWORDS` set in `tools.py::search_listings`.
+- *What I changed:* I corrected the README to say where the filler words are really dropped, instead of changing the code to match a sentence that was wrong.
 
 <!-- ═══════════════════════ UNIT 4 — THE TEST ═══════════════════════
 
