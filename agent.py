@@ -17,7 +17,8 @@ import re
 
 import config
 import trace
-from tools import search_listings, suggest_outfit, create_fit_card
+from mcp_client import call_tool
+from tools import suggest_outfit, create_fit_card
 from generate import ModelUnavailable
 
 
@@ -47,6 +48,17 @@ def new_session(query: str, wardrobe: dict) -> dict:
         "fit_card": None,            # what create_fit_card returned
         "error": None,               # set when the run ended early
     }
+
+
+# ── the MCP tool ──────────────────────────────────────────────────────────────
+
+def search_listings(description: str, size: str | None = None, max_price: float | None = None) -> list[dict]:
+    """search_listings, called through the MCP server in mcp_server.py."""
+    return call_tool("search_listings", {
+        "description": description,
+        "size": size,
+        "max_price": max_price,
+    })
 
 
 # ── query parsing ─────────────────────────────────────────────────────────────
