@@ -257,20 +257,78 @@ earlier, that "vintage" appears in 36 of the 40 listings. Recounted, it's 29.
      `python run_eval.py --label before` runs everything and writes the table
      into results/. Paste it here and fill in the verdicts. -->
 
+Run with `python run_eval.py --label before`: 9 scenarios, 5 tries each, cache off, temperature 0.9, 80 model calls. Evidence file: `results/run_2026-10-25_2231_before.md`. Each try was marked PASS or FAIL by `score_run.py`, which applies each criterion's wording literally. I committed it with `scenarios.py` *before* the first run, so the rules couldn't drift to fit the results.
+
 | Criterion | Target | Try 1 | Try 2 | Try 3 | Try 4 | Try 5 | Verdict |
 |---|---|---|---|---|---|---|---|
-| 1.  |  |  |  |  |  |  |  |
-| 2.  |  |  |  |  |  |  |  |
-| 3.  |  |  |  |  |  |  |  |
-| 4.  |  |  |  |  |  |  |  |
-| 5.  |  |  |  |  |  |  |  |
+| 1. Matching query completes all three tools | 4 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 2. Impossible query stops before suggest_outfit | 5 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 3. Selected item is first result / outfit names its title | 5 of 5 / 4 of 5 | PASS / PASS | PASS / PASS | PASS / PASS | PASS / PASS | PASS / PASS | MET (5/5 and 5/5) |
+| 4. Fit card follows the caption rules | 4 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 5. Empty wardrobe invents no owned clothes | 4 of 5 | FAIL | PASS | FAIL | PASS | PASS | MISSED (3/5) |
 
-**Real output from one try**, pasted as text, naming the file and function
-that produced it:
+Criterion 4's Try N is the first run of the Nth query (graphic tee, track jacket, slip dress, platform sneakers, denim jacket). I fixed that mapping in `scenarios.py` before running. Across all 25 fit cards produced, 24 passed. The one failure was slip dress try 5, which isn't a counted try. It's covered under Diagnoses.
+
+**A mistake in my own measurement, caught before I called anything.** The first time I scored this run, criterion 2 came out **0 of 5**. That can't be right for a path with no model call, so I read the raw log. Every try had stopped correctly at step 2. The scorer checked whether the text "suggest_outfit" appeared anywhere in the trace, and my branch's own trace note says "stopping before suggest_outfit". I changed the check to look for a trace *step* named `suggest_outfit` (commit `88b8144`). The agent and the criterion didn't change; the measurement did.
+
+**Real output from one try per criterion**, all from `results/run_2026-10-25_2231_before.md`, produced by `run_eval.py::main` running `agent.py::run_agent`:
+
+Criterion 1, try 1, `'vintage graphic tee under $30'`: completed, fit card from `tools.py::create_fit_card`:
 
 ```
+Found this little butterfly tee and I'm obsessed with the pastel colors. Got it for $18.00 on depop and the fit is genuinely so flattering. Going to style it with baggy jeans and chunky sneakers for running errands today. #y2kstyle #babytee #thrifted
+```
+
+Criterion 2, try 1, `'designer ballgown size XXS under $5'`: the message from `agent.py::explain_empty`, and the trace stops at step 2:
 
 ```
+- stopped early: yes — No listings matched 'designer ballgown' in size XXS under $5. None of the 40 listings mention those words at all, so changing the price or size won't help. Try a different item type (tops, bottoms, outerwear, shoes, accessories) or a style word like 'vintage', '90s', 'y2k' or 'denim'.
+- selected_item: (none)
+- search_results: 0
+
+[1] parse_query
+      in:  designer ballgown size XXS under $5
+      out: {'description': 'designer ballgown', 'size': 'XXS', 'max_price': 5.0}
+[2] search_listings (via MCP)
+      in:  {'description': 'designer ballgown', 'size': 'XXS', 'max_price': 5.0}
+      out: [] (empty)
+      →    branch: empty, stopping before suggest_outfit
+```
+
+Criterion 3, try 1, `'vintage graphic tee under $30, size M'`: the first search result is the selected item (lst_002), and the same id goes into `suggest_outfit`, which names it word for word:
+
+```
+- selected_item: Y2K Baby Tee — Butterfly Print ($18.0, depop)
+
+[2] search_listings (via MCP)
+      out: 10 items: Y2K Baby Tee — Butterfly Print, Leather Belt — Brown, Braided, Bucket Hat — Reversible, Brown Plaid … +7 more
+      →    branch: 10 found, selected lst_002
+[3] suggest_outfit
+      in:  {'new_item': 'lst_002', 'wardrobe_items': 10}
+
+Outfit suggestion:
+Outfit 1:
+Y2K Baby Tee — Butterfly Print
+Baggy straight-leg jeans, dark wash
+...
+```
+
+Criterion 4, try 2 (track jacket, $45.0 on poshmark): price `45`, platform `poshmark`, 3 sentences, 3 hashtags:
+
+```
+Found this vintage Champion track jacket and it is officially my new favorite layering piece. Tossed it on with baggy denim and chunky sneakers for the ultimate 90s athletic vibe. Score of the century for $45.00 on poshmark. #vintage #streetwear #champion
+```
+
+Criterion 5, try 1 (a FAIL), `'denim jacket under $50'` with the empty wardrobe, outfit from `tools.py::suggest_outfit`:
+
+```
+Pair the cropped jacket with a simple white ribbed tank top and black high-waisted wide-leg trousers.
+Add chunky black loafers and a minimal leather shoulder bag to complete the look.
+Alternatively, layer it over a black maxi slip dress with worn-in white canvas sneakers.
+This Wrangler piece is a classic vintage find, though forty-two dollars is a bit steep for Poshmark.
+```
+
+"white ribbed tank top" is the example wardrobe's "White ribbed tank top", word for word.
 
 ---
 
@@ -294,15 +352,23 @@ that produced it:
 
 | # | Criterion | Target | Verdict | How I decided |
 |---|---|---|---|---|
-| 1 |  |  |  |  |
-| 2 |  |  |  |  |
-| 3 |  |  |  |  |
-| 4 |  |  |  |  |
-| 5 |  |  |  |  |
+| 1 | Matching query completes all three tools | 4 of 5 | MET (5/5) | All five tries returned a fit card with no error and no crash. |
+| 2 | Impossible query stops before suggest_outfit | 5 of 5 | MET (5/5) | All five stopped at step 2, with no `suggest_outfit` step, no fit card, and a message naming a change. This is plain code with 0 model calls, so 5/5 is what I expected. |
+| 3 | Selected item is first result / outfit names its title | 5 of 5 / 4 of 5 | MET (5/5 and 5/5) | Both halves had to hold. The id half is code. The title half I expected to miss sometimes, but with a wardrobe the model always listed the item by its full title as the first line of each outfit. |
+| 4 | Fit card follows the caption rules | 4 of 5 | MET (5/5) | The five counted cards each had the price, the platform, 3 sentences and 3 hashtags. |
+| 5 | Empty wardrobe invents no owned clothes | 4 of 5 | MISSED (3/5) | Tries 1 and 3 both contained "white ribbed tank top", one of the 10 wardrobe names. 3 is under the target of 4, so it's a miss. |
+
+**Arguing the opposite verdict on criterion 5.** Someone could say it should count as MET: neither failing outfit claims the user *owns* a tank top. Both say "pair it with a simple white ribbed tank top", which is advice to buy or borrow one. I'm keeping MISSED anyway, because the criterion I wrote counts name matches, not claims of ownership, and the count was 3. Whether the criterion measures the right thing is a separate question, discussed below. It doesn't change the verdict.
 
 **Diagnoses**
 
+**Criterion 5 missed: model output, caused by my own prompt.** Where: `tools.py::suggest_outfit`, the empty-wardrobe branch. Mechanism: with no wardrobe, my prompt asks the model to build outfits "using common basics anyone could pick up". The most common basic it reaches for is a ribbed tank. 4 of the 5 empty-wardrobe outfits paired the jacket with one, 2 of them in white, using the exact words of an item in my example wardrobe. The denim jacket listing never mentions a tank top (its description is about "structured shoulders" and being a "blank canvas"), so the phrase didn't come from the item. It came from asking for generic basics. The tool and the branch worked: no crash, non-empty advice, a fit card every time. The prompt pushed the model toward exactly the generic pieces a real wardrobe is likely to hold.
 
+The criterion itself is blunt, and I said so in unit 3: some wardrobe names are ordinary phrases, so a match isn't proof the model invented ownership. That's still a real finding, because it means the empty-wardrobe advice reads like "the usual basics" rather than advice built around this specific item.
+
+**A pattern outside the counted tries: the model sometimes writes prices as words.** Slip dress try 5 was the only fit card of 25 to fail a rule, because it said "Snagged it for thirty bucks on depop" with no number. Two empty-wardrobe outfits did the same ("forty-two dollars is a bit steep for Poshmark"). My `create_fit_card` prompt says "mention the price exactly once" and never says *how*. It costs nothing in this run, because try 5 isn't one of criterion 4's counted tries, but it's the same tool and the same kind of gap: a prompt that leaves the format to the model.
+
+**On targets that were too easy.** I missed only one criterion, so I should say honestly where my targets were low. Criterion 4 at 4 of 5 passed 24 of 25 cards over the whole run, so I'd tighten it to 5 of 5. Criterion 3's title half (4 of 5) passed every time, because the wardrobe prompt makes the model list the item's full title as an outfit line. A stricter version would check the title in the fit card instead, which is written freely.
 
 ---
 
