@@ -187,8 +187,10 @@ def suggest_outfit(new_item: dict, wardrobe: dict) -> str:
         )
         prompt = (
             f"The user is considering this thrifted item:\n{item_text}\n\n"
-            "Suggest one or two outfits built around it, using common basics "
-            "anyone could pick up (describe them by type and color)."
+            "Suggest one or two outfits built around it. Choose each other piece "
+            f"to match this item's own style ({', '.join(new_item['style_tags'])}) "
+            f"and colors ({', '.join(new_item['colors'])}), and name it by a "
+            "specific cut, fabric or detail rather than as a plain basic."
         )
     else:
         owned = "\n".join(
