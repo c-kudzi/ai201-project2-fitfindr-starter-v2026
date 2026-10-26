@@ -91,7 +91,9 @@ def main(path: Path) -> None:
     rows.append(("1. Matching query completes all three tools", "4 of 5", c1, sum(c1) >= TARGETS[1]))
 
     c2 = [
-        t["stopped"] and "suggest_outfit" not in t["trace"] and not t["card"]
+        # A *step* named suggest_outfit, not the words anywhere: the branch's
+        # own note reads "stopping before suggest_outfit".
+        t["stopped"] and not re.search(r"^\[\d+\] suggest_outfit", t["trace"], re.M) and not t["card"]
         and bool(re.search(r"raise your max price|drop the size|drop both|Try a different", t["message"]))
         for t in by("impossible query stops early")
     ]
