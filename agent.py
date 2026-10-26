@@ -13,6 +13,8 @@ Build and test your three tools in `tools.py` first. Then come here.
     python agent.py          runs both example paths below
 """
 
+import re
+
 import config
 import trace
 from tools import search_listings, suggest_outfit, create_fit_card
@@ -45,6 +47,82 @@ def new_session(query: str, wardrobe: dict) -> dict:
         "fit_card": None,            # what create_fit_card returned
         "error": None,               # set when the run ended early
     }
+
+
+# ── query parsing ─────────────────────────────────────────────────────────────
+
+_PRICE = re.compile(
+    r"(?:under|below|less than|max|up to|<)\s*\$?\s*(\d+(?:\.\d+)?)|\$(\d+(?:\.\d+)?)",
+    re.IGNORECASE,
+)
+_SIZE = re.compile(r"\bsize\s+([a-z0-9][a-z0-9./]*)", re.IGNORECASE)
+
+
+def parse_query(query: str) -> dict:
+    """
+    Pull a description, a size and a max_price out of plain language, by regex.
+
+    "vintage graphic tee under $30, size M"
+        → {"description": "vintage graphic tee", "size": "M", "max_price": 30.0}
+
+    Anything not found comes back as None. Whatever's left after the price and
+    size are cut out is the description; search_listings drops filler words.
+    """
+    rest = query
+
+    max_price = None
+    price = _PRICE.search(rest)
+    if price:
+        max_price = float(price.group(1) or price.group(2))
+        rest = rest[: price.start()] + " " + rest[price.end():]
+
+    size = None
+    size_match = _SIZE.search(rest)
+    if size_match:
+        size = size_match.group(1).rstrip(".").upper()
+        rest = rest[: size_match.start()] + " " + rest[size_match.end():]
+
+    description = " ".join(re.sub(r"[^\w'\- ]", " ", rest).split())
+    return {"description": description, "size": size, "max_price": max_price}
+
+
+def explain_empty(parsed: dict) -> str:
+    """
+    Say why a search came back empty and what to change.
+
+    It re-runs the search with one filter removed at a time, so the message
+    can say which filter was the blocker rather than just "no results".
+    """
+    description = parsed["description"]
+    size = parsed["size"]
+    max_price = parsed["max_price"]
+
+    asked = f"'{description}'"
+    if size:
+        asked += f" in size {size}"
+    if max_price is not None:
+        asked += f" under ${max_price:g}"
+
+    keyword_only = search_listings(description)
+    if not keyword_only:
+        return (
+            f"No listings matched {asked}. None of the 40 listings mention those "
+            "words at all, so changing the price or size won't help. Try a "
+            "different item type (tops, bottoms, outerwear, shoes, accessories) "
+            "or a style word like 'vintage', '90s', 'y2k' or 'denim'."
+        )
+
+    tips = []
+    if max_price is not None and search_listings(description, size, None):
+        cheapest = min(l["price"] for l in search_listings(description, size, None))
+        tips.append(f"raise your max price to at least ${cheapest:g}")
+    if size and search_listings(description, None, max_price):
+        sizes = sorted({l["size"] for l in search_listings(description, None, max_price)})
+        tips.append(f"drop the size (sizes that match: {', '.join(sizes[:5])})")
+    if not tips:
+        tips.append("drop both the size and the price limit")
+
+    return f"No listings matched {asked}. To find something, " + " or ".join(tips) + "."
 
 
 # ── planning loop ─────────────────────────────────────────────────────────────
@@ -106,9 +184,43 @@ def run_agent(query: str, wardrobe: dict) -> dict:
         than a stack trace. The import is already at the top of this file.
     """
     session = new_session(query, wardrobe)
+    iterations = 0
+    next_step = "parse"
 
-    # TODO: delete these two lines and build the loop.
-    session["error"] = "The planning loop isn't built yet — see the TODO in agent.py."
+    while next_step != "done":
+        iterations += 1
+        trace.check_iterations(iterations)
+
+        if next_step == "parse":
+            session["parsed"] = parse_query(session["query"])
+            next_step = "search"
+
+        elif next_step == "search":
+            parsed = session["parsed"]
+            session["search_results"] = search_listings(
+                parsed["description"], parsed["size"], parsed["max_price"]
+            )
+            # The branch: nothing found means stop here, with a message that
+            # says what to change. suggest_outfit never sees an empty result.
+            if not session["search_results"]:
+                session["error"] = explain_empty(session["parsed"])
+                next_step = "done"
+            else:
+                session["selected_item"] = session["search_results"][0]
+                next_step = "suggest"
+
+        elif next_step == "suggest":
+            session["outfit_suggestion"] = suggest_outfit(
+                session["selected_item"], session["wardrobe"]
+            )
+            next_step = "fit_card"
+
+        elif next_step == "fit_card":
+            session["fit_card"] = create_fit_card(
+                session["outfit_suggestion"], session["selected_item"]
+            )
+            next_step = "done"
+
     return session
 
 
