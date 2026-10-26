@@ -69,24 +69,25 @@ and one-size items (`One Size`, `One Size (adjustable)`). A wardrobe is
 
 ### `search_listings`
 
-- **What it does:**
-- **Inputs:** <!-- name and type each: `max_price` (float), not "a price" -->
-- **Returns:**
-- **When it has nothing:**
+- **What it does:** Filters the 40 listings by price ceiling and size, scores the rest by how many query keywords appear in each listing, and returns the best matches first. It makes no model call.
+- **Inputs:** `description` (str): keywords such as `"vintage graphic tee"`. `size` (str or None): a size such as `"M"`, `"W30"` or `"8"`, or None to skip size filtering. `max_price` (float or None): inclusive price ceiling, or None to skip price filtering.
+- **Returns:** A `list[dict]` of at most `config.SEARCH_RESULT_LIMIT` (10) whole listing dicts, highest score first, with ties going to the lower price. Each dict has the same fields as the data: `id`, `title`, `description`, `category`, `style_tags`, `size`, `condition`, `price`, `colors`, `brand`, `platform`. Scoring: a keyword found in the title, a style tag or the category counts 2; one found only in the description, colors or brand counts 1. A listing that scores 0 is dropped.
+  - **Size matching rule:** the listing's size and the requested size are both split into lowercase tokens on spaces, `/`, `(` and `)`, and a listing matches if it shares a whole token with the request. So `M` matches `S/M`, `M` and `M/L`, but not `XL`, `W30 L30` or `US 9`. `8` matches `US 8` but not `US 8.5`. A listing whose size contains "one size" matches any requested size.
+- **When it has nothing:** It returns an empty list `[]`, never None and never an exception. An empty or stopword-only `description` also returns `[]`.
 
 ### `suggest_outfit`
 
-- **What it does:**
-- **Inputs:**
-- **Returns:**
-- **When it has nothing:**
+- **What it does:** Asks the model for one or two outfits built around the new item, naming pieces from the user's wardrobe by their `name`.
+- **Inputs:** `new_item` (dict): one listing dict. `wardrobe` (dict): `{"items": [wardrobe item dicts]}`, where `items` may be empty.
+- **Returns:** A non-empty `str` of 2 to 6 short lines of plain text: one or two outfit ideas, each naming the wardrobe pieces it uses.
+- **When it has nothing:** If `wardrobe["items"]` is empty (or missing), it asks for general styling advice for the item instead, with no wardrobe pieces named, and still returns a non-empty `str`. If the model sends back blank text, it returns a fixed fallback sentence: `"Style the <title> with simple basics in neutral colors and let it be the focus."`
 
 ### `create_fit_card`
 
-- **What it does:**
-- **Inputs:**
-- **Returns:**
-- **When it has nothing:**
+- **What it does:** Asks the model for a short caption someone would post about the find.
+- **Inputs:** `outfit` (str): the text `suggest_outfit` returned. `new_item` (dict): the same listing dict.
+- **Returns:** A `str` caption of 2 to 4 sentences in a casual first-person voice, mentioning the item's price and platform once each, with at most 3 hashtags at the end. The brand is mentioned only when the listing has one.
+- **When it has nothing:** If `outfit` is empty or only whitespace, it makes no model call and returns `"No fit card: there was no outfit suggestion for <title> to write about."`
 
 ---
 
@@ -103,13 +104,13 @@ and one-size items (`One Size`, `One Size (adjustable)`). A wardrobe is
      The grader checks your code against what you claim here, so the file and
      function have to be real. -->
 
-**Branch rule:**
+**Branch rule:** If `search_listings` returns an empty list, put a message in `session["error"]` that says which filter blocked the search and what to change (raise the price, drop the size, or use other words), and stop. `suggest_outfit` and `create_fit_card` are not called and `session["fit_card"]` stays None. Otherwise, take the first result as `session["selected_item"]` and go to `suggest_outfit`.
 
 **Where it lives:** `agent.py::run_agent`
 
-**How the query is parsed:** <!-- regex, string splitting, or asking the model — say which -->
+**How the query is parsed:** Regex, in `agent.py::parse_query`. The price comes from `under $30`, `below 30`, `less than $30`, `max $30`, `up to $30` or a bare `$30`. The size comes from `size M` or `size 8.5`. What's left, minus filler words like "looking for", "a" and "in", becomes the description.
 
-**What moves through the session:** <!-- which fields, in what order -->
+**What moves through the session:** `query` → `parsed` (description, size, max_price) → `search_results` → *branch* → `selected_item` → `outfit_suggestion` → `fit_card`. Each tool reads its inputs out of the session, not from the previous call's return value.
 
 ---
 
