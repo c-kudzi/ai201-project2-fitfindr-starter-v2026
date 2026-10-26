@@ -239,6 +239,11 @@ describing it was wrong, and changing working code to match a wrong sentence
 would have been backwards. The same review caught a number I'd been told
 earlier, that "vintage" appears in 36 of the 40 listings. Recounted, it's 29.
 
+**Unit 4: 3. The scorer Claude wrote said my branch failed 5 times out of 5, and the scorer was wrong.**
+I had Claude write `score_run.py` to mark each try against `criteria.md`, and I committed it before the first run. On the before run it scored criterion 2 at 0 of 5. A path with no model call can't be that flaky, so we read the raw log instead: all five tries had stopped correctly at step 2. The check looked for the words "suggest_outfit" anywhere in the trace, and my own trace note says "stopping before suggest_outfit". We fixed the check to look for a *step* with that name, and said so in the Run Log. If I'd trusted the table, I'd have written a diagnosis for a bug that didn't exist.
+
+**4. Two numbers in the write-up were wrong until I checked them against the evidence.** Claude's first draft of the criterion 5 diagnosis said 4 of the 5 empty-wardrobe outfits suggested a tank top. Counting the outfits in the run log, it was 3. Its draft of The Improvement also quoted a commit hash that didn't exist; the real one is `7df8ca9`. Both are fixed. It's the same lesson as project 1: the code is easy to check, but the numbers quoted about it need checking against the files every time.
+
 <!-- ═══════════════════════ UNIT 4 — THE TEST ═══════════════════════
 
      Don't fill these in during unit 3.
@@ -498,70 +503,48 @@ I changed the key for that one command only, through the `GEMINI_API_KEY` enviro
 
      `python run_eval.py --label after` -->
 
-**What I changed:**
+**What I changed:** One prompt, in the empty-wardrobe branch of `tools.py::suggest_outfit` (commit `7df8ca9`). Before, it asked for outfits "using common basics anyone could pick up (describe them by type and color)". Now it asks the model to choose each piece "to match this item's own style (denim, vintage, classic, streetwear) and colors (light blue), and name it by a specific cut, fabric or detail rather than as a plain basic". The style tags and colors are filled in from the listing. Nothing mentions tank tops or any wardrobe item. Writing the test's answer into the prompt would have been gaming it, not fixing it.
 
-**Which failure it was meant to fix:**
+**Which failure it was meant to fix:** Criterion 5. The diagnosis found the collisions came from my prompt asking for "common basics", not from the item. If that's the mechanism, asking for style-specific pieces should make generic wardrobe staples come up less often.
 
 ### Run Log — After
 
+Same 9 scenarios, 5 tries each, cache off, 80 model calls, scored by the same `score_run.py`. Evidence file: `results/run_2026-10-25_2238_after.md`.
+
 | Criterion | Target | Try 1 | Try 2 | Try 3 | Try 4 | Try 5 | Verdict |
 |---|---|---|---|---|---|---|---|
-| 1.  |  |  |  |  |  |  |  |
-| 2.  |  |  |  |  |  |  |  |
-| 3.  |  |  |  |  |  |  |  |
-| 4.  |  |  |  |  |  |  |  |
-| 5.  |  |  |  |  |  |  |  |
+| 1. Matching query completes all three tools | 4 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 2. Impossible query stops before suggest_outfit | 5 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 3. Selected item is first result / outfit names its title | 5 of 5 / 4 of 5 | PASS / PASS | PASS / PASS | PASS / PASS | PASS / PASS | PASS / PASS | MET (5/5 and 5/5) |
+| 4. Fit card follows the caption rules | 4 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 5. Empty wardrobe invents no owned clothes | 4 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
 
-**Did it help, and how do I know:**
+**Side by side, the only row that moved:**
 
-<!-- If it made things worse, say that. Honestly reported, that earns full
-     credit and is more interesting than one that worked. -->
+| Criterion 5 | Try 1 | Try 2 | Try 3 | Try 4 | Try 5 | Verdict |
+|---|---|---|---|---|---|---|
+| Before | FAIL | PASS | FAIL | PASS | PASS | MISSED (3/5) |
+| After | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
 
+**Did it help, and how do I know:** Yes on the number, partly in substance, and I want to be exact about which part is which.
 
+The number moved from 3/5 to 5/5, and the outfits did change character. Before, they were built from plain basics ("a simple white ribbed tank top and black high-waisted wide-leg trousers"). After, every outfit named specific pieces tied to the jacket's style: "pleated wool houndstooth trousers", "a bias-cut black silk midi slip skirt", "chunky leather lug-sole boots". That's the change the diagnosis called for.
+
+But the model didn't stop reaching for a tank. Before, 3 of the 5 outfits suggested a ribbed tank. After, 2 still did, worded more specifically: try 4 "a ribbed cream cotton-modal mock-neck tank top", and try 5 "a ribbed white cotton tank top". Try 5 is essentially the wardrobe's "White ribbed tank top" with "cotton" in the middle. It passes because my criterion matches names word for word, and the new prompt's demand for "a specific cut, fabric or detail" adds words that break the match. So part of this 5/5 is the prompt changing the *wording* of a staple, not removing it. A criterion that matched the garment rather than the exact phrase would likely have scored try 5 as a FAIL, giving 4/5. That still meets the target, but by one try, not two.
+
+The other four criteria didn't move, which is what should happen: the change only touches the empty-wardrobe branch, and only criterion 5 runs it.
 
 ---
 
 ## What's Still Broken
 
-<!-- For each criterion still missed: what you'd do, and why you stopped where
-     you did. "I ran out of time" is fine if it's true. Pretending nothing is
-     left is not. -->
+No criterion is still missed after the change, but that's not the same as nothing being broken.
 
+- **Criterion 5 passes partly on wording.** As above, the model still suggested a ribbed tank in 2 of 5 empty-wardrobe outfits; the new prompt just makes it describe the tank in more words. What I'd do: rewrite criterion 5 to check for ownership language ("your ...", "you already have", "from your wardrobe") rather than item names. I didn't, because when I tried that reading on the before run, an outfit saying "throw a tote bag over your shoulder" would fail a plain "your" check. That version needs a short list of ownership phrases, decided before a run, not after. I stopped because a revised criterion has to be written before the run that tests it, and this unit's two runs are already done.
+- **The fit card sometimes writes the price as words.** "eighteen bucks", "forty-two dollars": 1 of 25 cards before, 3 of 25 after, with the same `create_fit_card` prompt both times, so the difference is run-to-run variation, not my change. None of these were counted tries, so criterion 4 is MET both times, but a reader could still get a card with no number in it. What I'd do: add "write the price in digits with a $ sign, e.g. $18" to the system prompt in `tools.py::create_fit_card`. I didn't, because the unit allows one change and my diagnosis named criterion 5's miss as the thing to fix.
+- **Search ranks accessories above clothes on "vintage".** For `'vintage graphic tee under $30, size M'`, results 2 and 3 are a belt and a bucket hat, because one-size items pass every size filter and "vintage" matches 29 of 40 listings. The agent takes result 1, so no criterion catches it, but a "show me more" feature would.
+- **My targets were low in two places.** Criterion 4 (4 of 5) and criterion 3's title half (4 of 5) passed every counted try in both runs. Next time I'd set criterion 4 to 5 of 5 and move the title check into the fit card.
 
-
-<!-- ═════════════════════════════════════════════════════════════════════
-
-     SUBMISSION CHECKLIST — unit 3
-
-       [ ] criteria.md has five numbered criteria, each with a target
-       [ ] Each criterion has a reason underneath it
-       [ ] All five unit 3 sections above have real content
-       [ ] Tool Inventory: all three tools, inputs WITH TYPES, a specific
-           return value, and the empty case
-       [ ] Planning Loop names the branch rule and agent.py::run_agent
-       [ ] Sample Run: one full query plus the three per-tool tests, as text
-       [ ] At least four new commits
-       [ ] Repository URL submitted — WRITE IT DOWN, you submit the same one
-           next unit
-
-     SUBMISSION CHECKLIST — unit 4
-
-       [ ] mcp_server.py exists with one tool registered
-           (or a written record of exactly where the rewire broke)
-       [ ] Run Log — Before, five criteria, five tries each
-       [ ] Real output pasted underneath, naming file and function
-       [ ] A verdict on every criterion
-       [ ] A diagnosis for every miss, naming a place AND a mechanism
-       [ ] Loop Trace, with the MCP call visible in it
-       [ ] All three failure modes triggered and handled
-       [ ] One improvement, with Run Log — After in the same format
-       [ ] What's Still Broken
-       [ ] At least four new commits
-       [ ] The SAME repository URL as last unit
-
-     Do not delete and recreate this repository. Your commit history is what
-     shows your criteria existed before your results did.
-     ═════════════════════════════════════════════════════════════════════ -->
 
 ---
 
