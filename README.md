@@ -57,6 +57,16 @@
      on, and if you don't decide it here you'll discover it as a crash in
      Milestone 5. -->
 
+**What the data holds (Milestone 1).** 40 listings in `data/listings.json`.
+Each has `id`, `title`, `description`, `category` (tops, bottoms, outerwear,
+shoes, accessories), `style_tags` (list), `size`, `condition`, `price` (float),
+`colors` (list), `brand` (str or None, and None for most), `platform` (depop,
+thredUp, poshmark). Sizes are not one format: letter sizes (`M`, `S/M`,
+`L/XL`, `XL (oversized)`), waists (`W28`, `W30 L30`), shoes (`US 8`, `US 8.5`)
+and one-size items (`One Size`, `One Size (adjustable)`). A wardrobe is
+`{"items": [...]}`, each item with `id`, `name`, `category`, `colors`,
+`style_tags`, `notes`. The empty wardrobe is `{"items": []}`.
+
 ### `search_listings`
 
 - **What it does:**
